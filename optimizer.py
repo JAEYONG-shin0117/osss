@@ -58,7 +58,38 @@ class AdamW(Optimizer):
 
                         자세한 내용은 기본 프로젝트 안내문을 참조할 것.
                 '''
-                ### 완성시켜야 할 빈 코드 블록
-                raise NotImplementedError
+                ##----- 새로 작성한 코드 -----
+                # 상태 초기화 (첫 스텝인 경우)
+                if 'step' not in state:
+                    state['step'] = 0
+                    state['exp_avg'] = torch.zeros_like(p.data)
+                    state['exp_avg_sq'] = torch.zeros_like(p.data)
+
+                exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
+                beta1, beta2 = group['betas']
+                state['step'] += 1
+
+                # Weight decay 적용 (AdamW 방식)
+                # 파라미터 업데이트 전에 현재 파라미터 값에 weight decay를 적용
+                if group['weight_decay'] != 0:
+                    p.data.mul_(1 - group['lr'] * group['weight_decay'])
+
+                # 1차 모멘트 (평균) 업데이트
+                exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+                # 2차 모멘트 (제곱 평균) 업데이트
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+
+                if group['correct_bias']:
+                    bias_correction1 = 1 - beta1 ** state['step']
+                    bias_correction2 = 1 - beta2 ** state['step']
+                    step_size = alpha / bias_correction1
+                    denom = exp_avg_sq.sqrt().div_(math.sqrt(bias_correction2)).add_(group['eps'])
+                else:
+                    step_size = alpha
+                    denom = exp_avg_sq.sqrt().add_(group['eps'])
+
+                # 파라미터 업데이트
+                p.data.addcdiv_(exp_avg, denom, value=-step_size)
+                ##-------------------------
 
         return loss

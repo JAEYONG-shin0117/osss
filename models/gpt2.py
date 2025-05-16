@@ -47,20 +47,23 @@ class GPT2Model(GPTPreTrainedModel):
     input_shape = input_ids.size()
     seq_length = input_shape[1]
 
-    inputs_embeds = None
-
-    ### 완성시켜야 할 빈 코드 블록
-    raise NotImplementedError
-
+    ##----- 새로 작성한 코드 -----
+    # 입력 ID에 대한 단어 임베딩 얻기
+    inputs_embeds = self.word_embedding(input_ids)
+    ##-------------------------
 
     pos_ids = self.position_ids[:, :seq_length]
-    pos_embeds = None
-
     ### TODO: pos_ids를 사용하여 self.pos_embedding에서 위치 임베딩을 가져와 pos_embeds에 저장한다.
-    ###       그런 다음, 두 개의 임베딩을 더하고, 드롭아웃을 적용한 뒤 반환한다.
-    ### 완성시켜야 할 빈 코드 블록
-    raise NotImplementedError
-
+    ### 그런 다음, 두 개의 임베딩을 더하고, 드롭아웃을 적용한 뒤 반환한다.
+    ##----- 새로 작성한 코드 -----
+    # 위치 ID에 대한 위치 임베딩 얻기
+    pos_embeds = self.pos_embedding(pos_ids).to(inputs_embeds.device)
+    # 단어 임베딩과 위치 임베딩 더하기
+    embedding_output = inputs_embeds + pos_embeds
+    # 드롭아웃 적용
+    embedding_output = self.embed_dropout(embedding_output)
+    return embedding_output
+    ##-------------------------
 
   def encode(self, hidden_states, attention_mask):
     """
@@ -106,9 +109,11 @@ class GPT2Model(GPTPreTrainedModel):
 
       return hidden_state(s) * E^T
     """
-    ### 완성시켜야 할 빈 코드 블록
-    raise NotImplementedError
-
+    ##----- 새로 작성한 코드 -----
+    # 가중치 공유(weight tying): 출력 hidden state와 단어 임베딩 가중치(전치) 간의 내적
+    logits = torch.matmul(hidden_state, self.word_embedding.weight.t())
+    return logits
+    ##-------------------------
 
   @classmethod
   def from_pretrained(cls, model='gpt2', d=768, l=12, num_heads=12):

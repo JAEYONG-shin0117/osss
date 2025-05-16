@@ -1,4 +1,5 @@
 import torch
+import math
 
 from einops import rearrange
 from torch import nn
@@ -34,8 +35,46 @@ class CausalSelfAttention(nn.Module):
 
   def attention(self, key, query, value, attention_mask):
 
-    ### 완성시켜야 할 빈 코드 블록
-    raise NotImplementedError
+    ##----- 새로 작성한 코드 -----
+    # query와 key 전치 행렬 간의 행렬 곱셈을 수행하여 attention score 계산
+    # key.size() = [bs, num_attention_heads, seq_len, attention_head_size]
+    # query.size() = [bs, num_attention_heads, seq_len, attention_head_size]
+    # key.transpose(-1, -2).size() = [bs, num_attention_heads, attention_head_size, seq_len]
+    # attention_scores.size() = [bs, num_attention_heads, seq_len, seq_len]
+    attention_scores = torch.matmul(query, key.transpose(-1, -2))
+
+    # attention score를 attention_head_size의 제곱근으로 스케일링
+    attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+
+    # attention_mask를 적용하여 padding 토큰에 대한 attention을 방지
+    # attention_mask.size() = [bs, 1, 1, seq_len]
+    # attention_scores.size() = [bs, num_attention_heads, seq_len, seq_len]
+    attention_scores = attention_scores + attention_mask
+
+    # attention score에 softmax를 적용하여 확률 분포 생성
+    attention_probs = nn.functional.softmax(attention_scores, dim=-1)
+
+    # dropout 적용
+    attention_probs = self.dropout(attention_probs)
+
+    # attention 확률과 value 행렬 간의 행렬 곱셈 수행
+    # attention_probs.size() = [bs, num_attention_heads, seq_len, seq_len]
+    # value.size() = [bs, num_attention_heads, seq_len, attention_head_size]
+    # context_layer.size() = [bs, num_attention_heads, seq_len, attention_head_size]
+    context_layer = torch.matmul(attention_probs, value)
+
+    # context_layer 전치하여 크기 [bs, seq_len, num_attention_heads, attention_head_size]로 변경
+    # context_layer.size() = [bs, seq_len, num_attention_heads, attention_head_size]
+    context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
+
+    # context_layer를 재구성하여 크기 [bs, seq_len, all_head_size]로 변경
+    # all_head_size = num_attention_heads * attention_head_size
+    # new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
+    # context_layer = context_layer.view(*new_context_layer_shape)
+    context_layer = rearrange(context_layer, 'b t h d -> b t (h d)')
+    
+    return context_layer
+    ##-------------------------
 
 
   def forward(self, hidden_states, attention_mask):

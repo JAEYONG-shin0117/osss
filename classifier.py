@@ -321,6 +321,9 @@ def train(args):
 def test(args):
   with torch.no_grad():
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
+
+    import types
+    torch.serialization.add_safe_globals([types.SimpleNamespace])
     saved = torch.load(args.filepath)
     config = saved['model_config']
     model = GPT2SentimentClassifier(config)

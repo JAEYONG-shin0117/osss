@@ -324,7 +324,7 @@ def test(args):
 
     import types
     torch.serialization.add_safe_globals([types.SimpleNamespace])
-    saved = torch.load(args.filepath)
+    saved = torch.load(args.filepath, weights_only=False)
     config = saved['model_config']
     model = GPT2SentimentClassifier(config)
     model.load_state_dict(saved['model'])

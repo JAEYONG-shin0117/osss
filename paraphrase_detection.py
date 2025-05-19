@@ -59,18 +59,19 @@ class ParaphraseGPT(nn.Module):
 
   def forward(self, input_ids, attention_mask):
     """
-    TODO: paraphrase_detection_head Linear layer를 사용하여 토큰의 레이블을 예측하시오.
-
-    입력은 다음과 같은 구조를 갖는다:
-
-      'Is "{s1}" a paraphrase of "{s2}"? Answer "yes" or "no": '
-
-    따라서, 문장의 끝에서 다음 토큰에 대한 예측을 해야 할 것이다. 
-    훈련이 잘 되었다면, 패러프레이즈인 경우에는 토큰 "yes"(BPE index 8505)가, 
-    패러프레이즈가 아닌 경우에는 토큰 "no" (BPE index 3919)가 될 것이다.
+    패러프레이즈 감지를 위한 forward 메소드 구현
     """
-    ### 완성시켜야 할 빈 코드 블록
-    raise NotImplementedError
+    # GPT-2 모델을 통과시켜 hidden states 얻기
+    outputs = self.gpt(input_ids, attention_mask)
+    hidden_states = outputs.last_hidden_state
+    
+    # 마지막 토큰의 hidden state를 사용하여 분류
+    last_token_hidden = hidden_states[:, -1, :]
+    
+    # 분류 헤드를 통과시켜 로짓 얻기
+    logits = self.paraphrase_detection_head(last_token_hidden)
+    
+    return logits
 
 
 

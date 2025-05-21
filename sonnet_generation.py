@@ -243,15 +243,14 @@ def generate_submission_sonnets(args):
 
       print(f'{decoded_output}\n\n')
 
-    # predictions 디렉토리에 결과 저장
-    output_path = os.path.join('predictions', args.sonnet_out)
-    with open(output_path, "w+") as f:
+    # 결과 저장 (args.sonnet_out은 이미 전체 경로를 포함)
+    with open(args.sonnet_out, "w+") as f:
       f.write(f"--Generated Sonnets-- \n\n")
       for sonnet in generated_sonnets:
         f.write(f"\n{sonnet[0]}\n")
         f.write(sonnet[1])
     
-    print(f"Generated sonnets saved to: {output_path}")
+    print(f"Generated sonnets saved to: {args.sonnet_out}")
     
   except Exception as e:
     print(f"Error generating sonnets: {str(e)}")

@@ -217,32 +217,45 @@ def train(args):
 @torch.no_grad()
 def generate_submission_sonnets(args):
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
-  saved = torch.load(f'{args.epochs-1}_{args.filepath}', weights_only=False)
+  
+  # predictions 디렉토리에서 모델 파일 로드
+  model_path = os.path.join('predictions', f'{args.epochs-1}_{args.filepath}')
+  print(f"Loading model from: {model_path}")
+  
+  try:
+    saved = torch.load(model_path, weights_only=False)
+    model = SonnetGPT(saved['args'])
+    model.load_state_dict(saved['model'])
+    model = model.to(device)
+    model.eval()
 
-  model = SonnetGPT(saved['args'])
-  model.load_state_dict(saved['model'])
-  model = model.to(device)
-  model.eval()
+    # held-out 데이터셋 만들기: 처음 3 줄만 있다. 나머지를 채우는 것은 여러분 몫이다!
+    held_out_sonnet_dataset = SonnetsDataset(args.held_out_sonnet_path)
 
-  # held-out 데이터셋 만들기: 처음 3 줄만 있다. 나머지를 채우는 것은 여러분 몫이다!
-  held_out_sonnet_dataset = SonnetsDataset(args.held_out_sonnet_path)
+    generated_sonnets = []
+    for batch in held_out_sonnet_dataset:
+      sonnet_id = batch[0]
+      encoding = model.tokenizer(batch[1], return_tensors='pt', padding=False, truncation=True).to(device)
+      output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)[0][0]
+      decoded_output = model.tokenizer.decode(output)
+      full_sonnet = f'{decoded_output}\n\n'
+      generated_sonnets.append((sonnet_id, full_sonnet))
 
-  generated_sonnets = []
-  for batch in held_out_sonnet_dataset:
-    sonnet_id = batch[0]
-    encoding = model.tokenizer(batch[1], return_tensors='pt', padding=False, truncation=True).to(device)
-    output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)[0][0]
-    decoded_output = model.tokenizer.decode(output)
-    full_sonnet = f'{decoded_output}\n\n'
-    generated_sonnets.append((sonnet_id, full_sonnet))
+      print(f'{decoded_output}\n\n')
 
-    print(f'{decoded_output}\n\n')
-
-  with open(args.sonnet_out, "w+") as f:
-    f.write(f"--Generated Sonnets-- \n\n")
-    for sonnet in generated_sonnets:
-      f.write(f"\n{sonnet[0]}\n")
-      f.write(sonnet[1])
+    # predictions 디렉토리에 결과 저장
+    output_path = os.path.join('predictions', args.sonnet_out)
+    with open(output_path, "w+") as f:
+      f.write(f"--Generated Sonnets-- \n\n")
+      for sonnet in generated_sonnets:
+        f.write(f"\n{sonnet[0]}\n")
+        f.write(sonnet[1])
+    
+    print(f"Generated sonnets saved to: {output_path}")
+    
+  except Exception as e:
+    print(f"Error generating sonnets: {str(e)}")
+    print("Please check if the model file exists and is not corrupted.")
 
 
 def get_args():

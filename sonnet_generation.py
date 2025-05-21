@@ -132,8 +132,17 @@ def save_model(model, optimizer, args, filepath):
     'torch_rng': torch.random.get_rng_state(),
   }
 
-  torch.save(save_info, filepath)
-  print(f"save the model to {filepath}")
+  try:
+    # predictions 디렉토리에 저장
+    full_path = f'predictions/{filepath}'
+    torch.save(save_info, full_path)
+    print(f"save the model to {full_path}")
+  except Exception as e:
+    print(f"Error saving model: {e}")
+    # 임시 파일로 저장 시도
+    temp_path = f'temp_{filepath}'
+    torch.save(save_info, temp_path)
+    print(f"Saved model to temporary file: {temp_path}")
 
 
 def train(args):

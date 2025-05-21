@@ -11,6 +11,7 @@ SonnetGPT 모델을 훈련하고, 필요한 제출용 파일을 작성한다.
 import argparse
 import random
 import torch
+import os
 
 import numpy as np
 import torch.nn.functional as F
@@ -123,26 +124,32 @@ class SonnetGPT(nn.Module):
 
 
 def save_model(model, optimizer, args, filepath):
-  save_info = {
-    'model': model.state_dict(),
-    'optim': optimizer.state_dict(),
-    'args': args,
-    'system_rng': random.getstate(),
-    'numpy_rng': np.random.get_state(),
-    'torch_rng': torch.random.get_rng_state(),
-  }
-
   try:
-    # predictions 디렉토리에 저장
-    full_path = f'predictions/{filepath}'
-    torch.save(save_info, full_path)
-    print(f"save the model to {full_path}")
+    # 저장할 디렉토리 확인 및 생성
+    save_dir = os.path.abspath('predictions')
+    if not os.path.exists(save_dir):
+      os.makedirs(save_dir)
+    
+    # 모델 상태만 저장 (최소한의 데이터)
+    save_info = {
+      'model': model.state_dict(),
+      'args': args
+    }
+    
+    # 절대 경로로 저장
+    full_path = os.path.join(save_dir, filepath)
+    print(f"Attempting to save model to: {full_path}")
+    
+    # 저장 시도
+    torch.save(save_info, full_path, _use_new_zipfile_serialization=False)
+    print(f"Successfully saved model to {full_path}")
+    
   except Exception as e:
-    print(f"Error saving model: {e}")
-    # 임시 파일로 저장 시도
-    temp_path = f'temp_{filepath}'
-    torch.save(save_info, temp_path)
-    print(f"Saved model to temporary file: {temp_path}")
+    print(f"Error saving model: {str(e)}")
+    print("Continuing without saving...")
+    return False
+  
+  return True
 
 
 def train(args):
@@ -162,6 +169,7 @@ def train(args):
 
   lr = args.lr
   optimizer = AdamW(model.parameters(), lr=lr)
+  best_loss = float('inf')
 
   for epoch in range(args.epochs):
     model.train()
@@ -188,6 +196,13 @@ def train(args):
 
     train_loss = train_loss / num_batches
     print(f"Epoch {epoch}: train loss :: {train_loss :.3f}.")
+    
+    # 현재 loss가 이전보다 좋을 때만 모델 저장
+    if train_loss < best_loss:
+      best_loss = train_loss
+      if save_model(model, optimizer, args, f'best_model_{epoch}_{args.filepath}'):
+        print(f"Saved new best model with loss: {train_loss:.3f}")
+    
     print('Generating several output sonnets...')
     model.eval()
     for batch in held_out_sonnet_dataset:
@@ -246,7 +261,7 @@ def get_args():
   parser.add_argument("--top_p", type=float, help="Cumulative probability distribution for nucleus sampling.",
                       default=0.9)
 
-  parser.add_argument("--batch_size", help='The training batch size.', type=int, default=8)
+  parser.add_argument("--batch_size", help='The training batch size.', type=int, default=4)
   parser.add_argument("--lr", type=float, help="learning rate", default=1e-5)
   parser.add_argument("--model_size", type=str, help="The model size as specified on hugging face.",
                       choices=['gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'], default='gpt2')

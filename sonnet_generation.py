@@ -61,12 +61,11 @@ class SonnetGPT(nn.Module):
     각 토큰에 대한 다음 토큰의 확률 분포를 예측합니다.
     """
     # GPT-2 모델을 통과시켜 hidden states 얻기
-    outputs = self.gpt(input_ids, attention_mask)
-    hidden_states = outputs.last_hidden_state
+    outputs = self.gpt(input_ids=input_ids, attention_mask=attention_mask)
+    hidden_states = outputs['last_hidden_state']  # 전체 시퀀스의 hidden states
     
     # 각 토큰의 hidden state를 사용하여 다음 토큰의 로짓 예측
-    # GPT-2의 vocab size에 맞게 projection
-    logits = self.gpt.wte(hidden_states)  # wte는 word token embedding layer
+    logits = self.gpt.hidden_state_to_token(hidden_states)
     
     return logits
 

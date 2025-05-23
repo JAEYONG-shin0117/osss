@@ -60,16 +60,23 @@ class ParaphraseGPT(nn.Module):
   def forward(self, input_ids, attention_mask):
     """
     패러프레이즈 감지를 위한 forward 메소드 구현
+    시퀀스의 모든 토큰 정보를 활용하여 분류합니다.
     """
     # GPT-2 모델을 통과시켜 hidden states 얻기
     outputs = self.gpt(input_ids, attention_mask)
-    hidden_states = outputs.last_hidden_state
+    hidden_states = outputs['last_hidden_state']  # [batch_size, seq_len, hidden_size]
     
-    # 마지막 토큰의 hidden state를 사용하여 분류
-    last_token_hidden = hidden_states[:, -1, :]
+    # Attention mask를 사용하여 패딩 토큰을 마스킹
+    mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_states.size()).float()
+    
+    # 마스킹된 평균 풀링
+    sum_hidden = torch.sum(hidden_states * mask_expanded, dim=1)
+    sum_mask = torch.sum(mask_expanded, dim=1)
+    sum_mask = torch.clamp(sum_mask, min=1e-9)  # 0으로 나누기 방지
+    mean_hidden = sum_hidden / sum_mask
     
     # 분류 헤드를 통과시켜 로짓 얻기
-    logits = self.paraphrase_detection_head(last_token_hidden)
+    logits = self.paraphrase_detection_head(mean_hidden)
     
     return logits
 
@@ -193,11 +200,11 @@ def get_args():
   parser.add_argument("--para_test_out", type=str, default="predictions/para-test-output.csv")
 
   parser.add_argument("--seed", type=int, default=11711)
-  parser.add_argument("--epochs", type=int, default=10)
+  parser.add_argument("--epochs", type=int, default=20)
   parser.add_argument("--use_gpu", action='store_true')
 
-  parser.add_argument("--batch_size", help='sst: 64, cfimdb: 8 can fit a 12GB GPU', type=int, default=8)
-  parser.add_argument("--lr", type=float, help="learning rate", default=1e-5)
+  parser.add_argument("--batch_size", help='sst: 64, cfimdb: 8 can fit a 12GB GPU', type=int, default=16)
+  parser.add_argument("--lr", type=float, help="learning rate", default=2e-5)
   parser.add_argument("--model_size", type=str,
                       help="The model size as specified on hugging face. DO NOT use the xl model.",
                       choices=['gpt2', 'gpt2-medium', 'gpt2-large'], default='gpt2')

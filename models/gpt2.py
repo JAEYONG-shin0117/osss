@@ -46,16 +46,13 @@ class GPT2Model(GPTPreTrainedModel):
   def embed(self, input_ids):
     input_shape = input_ids.size()
     seq_length = input_shape[1]
-
-    ##----- 새로 작성한 코드 -----
-    # 입력 ID에 대한 단어 임베딩 얻기
-    inputs_embeds = self.word_embedding(input_ids)
+  
+    inputs_embeds = None
     ##-------------------------
 
     pos_ids = self.position_ids[:, :seq_length]
-    ### TODO: pos_ids를 사용하여 self.pos_embedding에서 위치 임베딩을 가져와 pos_embeds에 저장한다.
-    ### 그런 다음, 두 개의 임베딩을 더하고, 드롭아웃을 적용한 뒤 반환한다.
-    ##----- 새로 작성한 코드 -----
+    pos_embeds = None
+    
     # 위치 ID에 대한 위치 임베딩 얻기
     pos_embeds = self.pos_embedding(pos_ids).to(inputs_embeds.device)
     # 단어 임베딩과 위치 임베딩 더하기

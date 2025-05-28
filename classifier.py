@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from transformers import GPT2Tokenizer
 from sklearn.metrics import f1_score, accuracy_score
+import wandb
 
 from models.gpt2 import GPT2Model
 from optimizer import AdamW
@@ -255,6 +256,10 @@ def save_model(model, optimizer, args, config, filepath):
 
 
 def train(args):
+  """SST 데이터셋에서 감정 분류를 위해 GPT-2 훈련."""
+  # wandb 초기화
+  wandb.init(project="sentiment-classification", config=vars(args))
+  
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
   # 데이터와 해당 데이터셋 및 데이터로더를 만든다.
   train_data, num_labels = load_data(args.train, 'train')
@@ -264,9 +269,9 @@ def train(args):
   dev_dataset = SentimentDataset(dev_data, args)
 
   train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=args.batch_size,
-                                collate_fn=train_dataset.collate_fn)
+                                 collate_fn=train_dataset.collate_fn)
   dev_dataloader = DataLoader(dev_dataset, shuffle=False, batch_size=args.batch_size,
-                              collate_fn=dev_dataset.collate_fn)
+                               collate_fn=dev_dataset.collate_fn)
 
   # Init model.
   config = {'hidden_dropout_prob': args.hidden_dropout_prob,
@@ -299,7 +304,6 @@ def train(args):
       optimizer.zero_grad()
       logits = model(b_ids, b_mask)
       loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
-
       loss.backward()
       optimizer.step()
 
@@ -311,11 +315,23 @@ def train(args):
     train_acc, train_f1, *_ = model_eval(train_dataloader, model, device)
     dev_acc, dev_f1, *_ = model_eval(dev_dataloader, model, device)
 
+    # wandb에 메트릭 기록
+    wandb.log({
+      "epoch": epoch,
+      "train_loss": train_loss,
+      "train_accuracy": train_acc,
+      "train_f1": train_f1,
+      "dev_accuracy": dev_acc,
+      "dev_f1": dev_f1
+    })
+
     if dev_acc > best_dev_acc:
       best_dev_acc = dev_acc
       save_model(model, optimizer, args, config, args.filepath)
 
     print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
+
+  wandb.finish()
 
 
 def test(args):

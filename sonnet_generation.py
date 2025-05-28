@@ -15,6 +15,7 @@ import os
 
 import numpy as np
 import torch.nn.functional as F
+import wandb
 
 from torch import nn
 from torch.utils.data import DataLoader
@@ -153,7 +154,10 @@ def save_model(model, optimizer, args, filepath):
 
 
 def train(args):
-  """Sonnet 데이터셋에서 소넷 생성을 위해 GPT-2 훈련.""" 
+  """Sonnet 데이터셋에서 소넷 생성을 위해 GPT-2 훈련."""
+  # wandb 초기화
+  wandb.init(project="sonnet-generation", config=vars(args))
+  
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
   # 데이터, 해당 데이터셋 및 데이터로드 생성하기.
   sonnet_dataset = SonnetsDataset(args.sonnet_path)
@@ -195,6 +199,13 @@ def train(args):
       num_batches += 1
 
     train_loss = train_loss / num_batches
+    
+    # wandb에 메트릭 기록
+    wandb.log({
+      "epoch": epoch,
+      "train_loss": train_loss
+    })
+    
     print(f"Epoch {epoch}: train loss :: {train_loss :.3f}.")
     
     # 현재 loss가 이전보다 좋을 때만 모델 저장
@@ -209,9 +220,15 @@ def train(args):
       encoding = model.tokenizer(batch[1], return_tensors='pt', padding=True, truncation=True).to(device)
       output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)
       print(f'{batch[1]}{output[1]}\n\n')
+      
+      # wandb에 생성된 소넷 기록
+      wandb.log({
+        "generated_sonnet": wandb.Html(f"<pre>{batch[1]}{output[1]}</pre>")
+      })
 
-    # TODO: 소넷의 작은 테이터셋에서 과적합을 방지하기 위한 종료 조건을 생각하시오.
     save_model(model, optimizer, args, f'{epoch}_{args.filepath}')
+
+  wandb.finish()
 
 
 @torch.no_grad()

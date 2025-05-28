@@ -17,6 +17,7 @@ import torch
 
 import numpy as np
 import torch.nn.functional as F
+import wandb
 
 from torch import nn
 from torch.utils.data import DataLoader
@@ -98,6 +99,9 @@ def save_model(model, optimizer, args, filepath):
 
 def train(args):
   """Quora 데이터셋에서 Paraphrase Detection을 위한 GPT-2 훈련."""
+  # wandb 초기화
+  wandb.init(project="paraphrase-detection", config=vars(args))
+  
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
   # 데이터, 해당 데이터셋 및 데이터로드 생성하기.
   para_train_data = load_paraphrase_data(args.para_train)
@@ -145,11 +149,21 @@ def train(args):
 
     dev_acc, dev_f1, *_ = model_eval_paraphrase(para_dev_dataloader, model, device)
 
+    # wandb에 메트릭 기록
+    wandb.log({
+      "epoch": epoch,
+      "train_loss": train_loss,
+      "dev_accuracy": dev_acc,
+      "dev_f1": dev_f1
+    })
+
     if dev_acc > best_dev_acc:
       best_dev_acc = dev_acc
       save_model(model, optimizer, args, args.filepath)
 
     print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, dev acc :: {dev_acc :.3f}")
+
+  wandb.finish()
 
 
 @torch.no_grad()

@@ -46,13 +46,15 @@ class GPT2Model(GPTPreTrainedModel):
   def embed(self, input_ids):
     input_shape = input_ids.size()
     seq_length = input_shape[1]
-  
-    inputs_embeds = None
+
+    ##----- 새로 작성한 코드 -----
+    # 입력 ID에 대한 단어 임베딩 얻기
+    inputs_embeds = self.word_embedding(input_ids)
     ##-------------------------
 
     pos_ids = self.position_ids[:, :seq_length]
-    pos_embeds = None
-    
+    ### 그런 다음, 두 개의 임베딩을 더하고, 드롭아웃을 적용한 뒤 반환한다.
+    ##----- 새로 작성한 코드 -----
     # 위치 ID에 대한 위치 임베딩 얻기
     pos_embeds = self.pos_embedding(pos_ids).to(inputs_embeds.device)
     # 단어 임베딩과 위치 임베딩 더하기
@@ -82,7 +84,7 @@ class GPT2Model(GPTPreTrainedModel):
   def forward(self, input_ids, attention_mask):
     """
     input_ids: [batch_size, seq_len], seq_len은 batch의 최대 길이
-    attention_mask: input_ids 와 크기가 같으며, 1 은 non-padding token을, 0 은 padding token을 나타낸다.  
+    attention_mask: input_ids 와 크기가 같으며, 1 은 non-padding token을, 0 은 padding token을 나타낸다.
     """
     # 각 입렵 토큰에 대한 임베딩 구하기기
     embedding_output = self.embed(input_ids=input_ids)
@@ -102,7 +104,7 @@ class GPT2Model(GPTPreTrainedModel):
     GPT-2 uses weight tying with the input word embeddings. The logits are the dot product between output hidden states
     and the word embedding weights:
     GPT-2는 입력 단어 임베딩과 가중치 공유(weight tying)를 사용한다.
-    로짓(logits)은 출력 은닉 상태와 단어 임베딩 가중치 간의 내적(dot product). 
+    로짓(logits)은 출력 은닉 상태와 단어 임베딩 가중치 간의 내적(dot product).
 
       return hidden_state(s) * E^T
     """

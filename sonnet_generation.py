@@ -8,10 +8,10 @@ trains your SonnetGPT model and writes the required submission files.
 SonnetGPT 모델을 훈련하고, 필요한 제출용 파일을 작성한다.
 '''
 
+
 import argparse
 import random
 import torch
-import os
 
 import numpy as np
 import torch.nn.functional as F
@@ -58,16 +58,16 @@ class SonnetGPT(nn.Module):
 
   def forward(self, input_ids, attention_mask):
     """
-    소넷 생성을 위한 forward 메소드 구현
-    각 토큰에 대한 다음 토큰의 확률 분포를 예측합니다.
+    ParaphraseGPT의 forward pass와 유사하지만, 여기서는 시퀀스의 마지막 토큰뿐만 아니라 시퀀스의 각 토큰에 대한 logit을 생성하려고 한다.
+    이를 통해, 마지막 토큰에 대한 다음 토큰의 분포만 학습하는 것이 아니라, 모델은 소네트를 구성하는 자연어 분포를 학습할 수 있다.
     """
-    # GPT-2 모델을 통과시켜 hidden states 얻기
-    outputs = self.gpt(input_ids=input_ids, attention_mask=attention_mask)
-    hidden_states = outputs['last_hidden_state']  # 전체 시퀀스의 hidden states
-    
-    # 각 토큰의 hidden state를 사용하여 다음 토큰의 로짓 예측
-    logits = self.gpt.hidden_state_to_token(hidden_states)
-    
+    ### 완성시켜야 할 빈 코드 블록
+    output = self.gpt(input_ids, attention_mask)
+    hidden_states = output['last_hidden_state']
+    batch_size, seq_length, hidden_dim = hidden_states.shape
+
+    logits = F.linear(hidden_states, self.gpt.word_embedding.weight)
+
     return logits
 
 
@@ -86,7 +86,6 @@ class SonnetGPT(nn.Module):
     """
     token_ids = encoding.to(self.get_device())
     attention_mask = torch.ones(token_ids.shape, dtype=torch.int64).to(self.get_device())
-
 
     for _ in range(max_length):
       # logits을 구하기 위한 forward pass.
@@ -124,36 +123,21 @@ class SonnetGPT(nn.Module):
 
 
 def save_model(model, optimizer, args, filepath):
-  try:
-    # 저장할 디렉토리 확인 및 생성
-    save_dir = os.path.abspath('predictions')
-    if not os.path.exists(save_dir):
-      os.makedirs(save_dir)
-    
-    # 모델 상태만 저장 (최소한의 데이터)
-    save_info = {
-      'model': model.state_dict(),
-      'args': args
-    }
-    
-    # 절대 경로로 저장
-    full_path = os.path.join(save_dir, filepath)
-    print(f"Attempting to save model to: {full_path}")
-    
-    # 저장 시도
-    torch.save(save_info, full_path, _use_new_zipfile_serialization=False)
-    print(f"Successfully saved model to {full_path}")
-    
-  except Exception as e:
-    print(f"Error saving model: {str(e)}")
-    print("Continuing without saving...")
-    return False
-  
-  return True
+  save_info = {
+    'model': model.state_dict(),
+    'optim': optimizer.state_dict(),
+    'args': args,
+    'system_rng': random.getstate(),
+    'numpy_rng': np.random.get_state(),
+    'torch_rng': torch.random.get_rng_state(),
+  }
+
+  torch.save(save_info, filepath)
+  print(f"save the model to {filepath}")
 
 
 def train(args):
-  """Sonnet 데이터셋에서 소넷 생성을 위해 GPT-2 훈련.""" 
+  """Sonnet 데이터셋에서 소넷 생성을 위해 GPT-2 훈련."""
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
   # 데이터, 해당 데이터셋 및 데이터로드 생성하기.
   sonnet_dataset = SonnetsDataset(args.sonnet_path)
@@ -169,7 +153,6 @@ def train(args):
 
   lr = args.lr
   optimizer = AdamW(model.parameters(), lr=lr)
-  best_loss = float('inf')
 
   for epoch in range(args.epochs):
     model.train()
@@ -185,8 +168,8 @@ def train(args):
       # 손실, 그래디언트를 계산하고 모델 파라미터 업데이트.
       optimizer.zero_grad()
       logits = model(b_ids, b_mask)
-      logits = rearrange(logits[:, :-1].contiguous(), 'b t d -> (b t) d')  # 시퀀스의 마지막 예측은 무시한다.
-      labels = b_ids[:, 1:].contiguous().flatten()  # 레이블을 구성하기 위해 첫번째 토큰을 무시한다.
+      logits = rearrange(logits[:, :-1].contiguous(), 'b t d -> (b t) d')  # Ignore the last prediction in the sequence.
+      labels = b_ids[:, 1:].contiguous().flatten()  # Ignore the first token to compose the labels.
       loss = F.cross_entropy(logits, labels, reduction='mean')
       loss.backward()
       optimizer.step()
@@ -196,13 +179,6 @@ def train(args):
 
     train_loss = train_loss / num_batches
     print(f"Epoch {epoch}: train loss :: {train_loss :.3f}.")
-    
-    # 현재 loss가 이전보다 좋을 때만 모델 저장
-    if train_loss < best_loss:
-      best_loss = train_loss
-      if save_model(model, optimizer, args, f'best_model_{epoch}_{args.filepath}'):
-        print(f"Saved new best model with loss: {train_loss:.3f}")
-    
     print('Generating several output sonnets...')
     model.eval()
     for batch in held_out_sonnet_dataset:
@@ -217,44 +193,32 @@ def train(args):
 @torch.no_grad()
 def generate_submission_sonnets(args):
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
-  
-  # predictions 디렉토리에서 모델 파일 로드
-  model_path = os.path.join('predictions', f'{args.epochs-1}_{args.filepath}')
-  print(f"Loading model from: {model_path}")
-  
-  try:
-    saved = torch.load(model_path, weights_only=False)
-    model = SonnetGPT(saved['args'])
-    model.load_state_dict(saved['model'])
-    model = model.to(device)
-    model.eval()
+  saved = torch.load(f'{args.epochs-1}_{args.filepath}', weights_only=False)
 
-    # held-out 데이터셋 만들기: 처음 3 줄만 있다. 나머지를 채우는 것은 여러분 몫이다!
-    held_out_sonnet_dataset = SonnetsDataset(args.held_out_sonnet_path)
+  model = SonnetGPT(saved['args'])
+  model.load_state_dict(saved['model'])
+  model = model.to(device)
+  model.eval()
 
-    generated_sonnets = []
-    for batch in held_out_sonnet_dataset:
-      sonnet_id = batch[0]
-      encoding = model.tokenizer(batch[1], return_tensors='pt', padding=False, truncation=True).to(device)
-      output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)[0][0]
-      decoded_output = model.tokenizer.decode(output)
-      full_sonnet = f'{decoded_output}\n\n'
-      generated_sonnets.append((sonnet_id, full_sonnet))
+  # held-out 데이터셋 만들기: 처음 3 줄만 있다. 나머지를 채우는 것은 여러분 몫이다!# held-out 데이터셋 만들기: 처음 3 줄만 있다. 나머지를 채우는 것은 여러분 몫이다!
+  held_out_sonnet_dataset = SonnetsDataset(args.held_out_sonnet_path)
 
-      print(f'{decoded_output}\n\n')
+  generated_sonnets = []
+  for batch in held_out_sonnet_dataset:
+    sonnet_id = batch[0]
+    encoding = model.tokenizer(batch[1], return_tensors='pt', padding=False, truncation=True).to(device)
+    output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)[0][0]
+    decoded_output = model.tokenizer.decode(output)
+    full_sonnet = f'{decoded_output}\n\n'
+    generated_sonnets.append((sonnet_id, full_sonnet))
 
-    # 결과 저장 (args.sonnet_out은 이미 전체 경로를 포함)
-    with open(args.sonnet_out, "w+") as f:
-      f.write(f"--Generated Sonnets-- \n\n")
-      for sonnet in generated_sonnets:
-        f.write(f"\n{sonnet[0]}\n")
-        f.write(sonnet[1])
-    
-    print(f"Generated sonnets saved to: {args.sonnet_out}")
-    
-  except Exception as e:
-    print(f"Error generating sonnets: {str(e)}")
-    print("Please check if the model file exists and is not corrupted.")
+    print(f'{decoded_output}\n\n')
+
+  with open(args.sonnet_out, "w+", encoding="utf-8") as f:
+    f.write(f"--Generated Sonnets-- \n\n")
+    for sonnet in generated_sonnets:
+      f.write(f"\n{sonnet[0]}\n")
+      f.write(sonnet[1])
 
 
 def get_args():
@@ -273,7 +237,7 @@ def get_args():
   parser.add_argument("--top_p", type=float, help="Cumulative probability distribution for nucleus sampling.",
                       default=0.9)
 
-  parser.add_argument("--batch_size", help='The training batch size.', type=int, default=4)
+  parser.add_argument("--batch_size", help='The training batch size.', type=int, default=8)
   parser.add_argument("--lr", type=float, help="learning rate", default=1e-5)
   parser.add_argument("--model_size", type=str, help="The model size as specified on hugging face.",
                       choices=['gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'], default='gpt2')

@@ -8,7 +8,6 @@ trains your SonnetGPT model and writes the required submission files.
 SonnetGPT 모델을 훈련하고, 필요한 제출용 파일을 작성한다.
 '''
 
-
 import argparse
 import random
 import torch
@@ -74,53 +73,154 @@ class SonnetGPT(nn.Module):
   def get_device(self):
     for param in self.gpt.parameters():
       return param.device
-
+  
   @torch.no_grad()
-  def generate(self, encoding, temperature=0.7, top_p=0.9, max_length=128):
+  def generate(
+      self,
+      encoding,
+      beam_width: int = 3,
+      max_length: int = 128,
+      length_penalty: float = 0.7
+  ):
     """
-    top-p sampling 과 softmax temperature를 사용하여 새로운 소넷을 생성한다.
+    Beam Search를 통해 최적의 시퀀스를 생성한다.
 
-    TODO: 지금 이 방법은 기대 이하일 수 있다. 영감을 얻기 위해 Hugging Face의 model.generate(...) 함수를 참고해도 좋겠다.
-        여러 시퀀스를 생성하고 beam search를 통해 최적의 시퀀스를 선택하는 것도 좋은 한 가지 방법이다.
-        Top-k 샘플링 역시 또 다른 방법이며, 그 외에도 많은 접근법이 있다.
+    Args:
+        encoding: 이미 토크나이즈되어 tensor 형태인 입력 (예: tokenizer(..., return_tensors='pt'))
+        beam_width: 빔 폭 (beam size)
+        max_length: 최대 생성 길이 (토큰 수)
+        length_penalty: 길이 패널티 계수 (짧은 시퀀스를 과도히 선호하지 않도록)
+    Returns:
+        best_sequence_ids: (tensor) 최종 선택된 토큰 ID 시퀀스
+        best_decoded: (str) 디코딩된 문자열
     """
-    token_ids = encoding.to(self.get_device())
-    attention_mask = torch.ones(token_ids.shape, dtype=torch.int64).to(self.get_device())
+    device = self.get_device()
+    # encoding['input_ids']는 (1, seq_len) 형태가 되도록 가정
+    input_ids = encoding['input_ids'].to(device)           # (1, L0)
+    attention_mask = torch.ones_like(input_ids).to(device)  # (1, L0)
 
+    # ------------------------------------------------------------
+    # 1) 초기 빔 상태 설정
+    # ------------------------------------------------------------
+    # beam_list: list of dict, each dict = {
+    #     "token_ids": Tensor (1, cur_len),
+    #     "attention_mask": Tensor (1, cur_len),
+    #     "cum_logprob": float  (누적 로그 확률)
+    # }
+    beam_list = [{
+        "token_ids": input_ids,        # (1, L0)
+        "attention_mask": attention_mask,  # (1, L0)
+        "cum_logprob": 0.0
+    }]
+
+    # EOS를 만난 “완성 빔(finished beams)”을 저장할 리스트
+    finished_beams = []
+
+    # ------------------------------------------------------------
+    # 2) 매 스텝마다 빔 확장 (확장 후 다시 beam_width개 선별)
+    # ------------------------------------------------------------
     for _ in range(max_length):
-      # logits을 구하기 위한 forward pass.
-      logits_sequence = self.forward(token_ids, attention_mask)
-      logits_last_token = logits_sequence[:, -1, :] / temperature  # Apply temperature scaling
+        all_candidates = []
 
-      # Convert logits to probabilities
-      probs = torch.nn.functional.softmax(logits_last_token, dim=-1)
+        # 현재 살아있는 빔 각각에 대해 확장
+        for beam in beam_list:
+            seq_ids = beam["token_ids"]           # (1, cur_len)
+            seq_mask = beam["attention_mask"]     # (1, cur_len)
+            cum_logprob = beam["cum_logprob"]     # float
 
-      # Top-p (nucleus) sampling
-      sorted_probs, sorted_indices = torch.sort(probs, descending=True)
-      cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-      top_p_mask = cumulative_probs <= top_p
-      top_p_mask[..., 1:] = top_p_mask[..., :-1].clone()  # Shift mask right for proper thresholding
-      top_p_mask[..., 0] = True  # Always include the highest probability token
-      filtered_probs = sorted_probs * top_p_mask  # Zero out unlikely tokens
-      filtered_probs /= filtered_probs.sum(dim=-1, keepdim=True)  # Normalize probabilities
+            # 마지막 토큰에 대한 logits 계산
+            logits_sequence = self.forward(seq_ids, seq_mask)   # (1, cur_len, vocab_size)
+            logits_last = logits_sequence[:, -1, :]             # (1, vocab_size)
+            log_probs = torch.log_softmax(logits_last, dim=-1)  # (1, vocab_size)
 
-      # Sample from filtered distribution
-      sampled_index = torch.multinomial(filtered_probs, 1)
-      sampled_token = sorted_indices.gather(dim=-1, index=sampled_index)
+            # top_k개 토큰을 뽑아야 하나, 일단 빔 폭만큼 뽑아본다
+            topk_log_probs, topk_indices = torch.topk(log_probs, k=beam_width, dim=-1)  # 둘 다 (1, beam_width)
 
-      # Stop if end-of-sequence token is reached
-      if sampled_token.item() == self.tokenizer.eos_token_id:
-        break
+            topk_log_probs = topk_log_probs.squeeze(0)    # (beam_width,)
+            topk_indices = topk_indices.squeeze(0)        # (beam_width,)
 
-      # Append sampled token
-      token_ids = torch.cat([token_ids, sampled_token], dim=1)
-      attention_mask = torch.cat(
-        [attention_mask, torch.ones((1, 1), dtype=torch.int64).to(self.get_device())], dim=1
-      )
+            # 각 후보 토큰마다 새롭게 빔 후보를 만들어 all_candidates에 추가
+            for i in range(beam_width):
+                token_id = topk_indices[i].unsqueeze(0).unsqueeze(0)  # (1,1)
+                token_logprob = topk_log_probs[i].item()
+                new_cum_logprob = cum_logprob + token_logprob
 
-    generated_output = self.tokenizer.decode(token_ids[0].cpu().numpy().tolist())[3:]
-    return token_ids, generated_output
+                # 이전 시퀀스에 토큰을 붙이고, 마스크도 확장
+                new_seq_ids = torch.cat([seq_ids, token_id], dim=1)  # (1, cur_len+1)
+                new_seq_mask = torch.cat([seq_mask, torch.ones((1,1), dtype=torch.int64).to(device)], dim=1)
 
+                candidate = {
+                    "token_ids": new_seq_ids,
+                    "attention_mask": new_seq_mask,
+                    "cum_logprob": new_cum_logprob
+                }
+                all_candidates.append(candidate)
+
+        # all_candidates에는 beam_width * (현재 빔 개수)개의 후보가 들어있다.
+        # 이 중 상위 beam_width개만 선택
+        # 먼저 각 후보의 “점수(score)”를 계산: (누적로그확률 / length_penalty)
+        # length_penalty를 적용하여, 지나치게 짧은 시퀀스가 선택되지 않도록 보정
+        # 점수 = cum_logprob / (seq_len ** length_penalty)
+        scored_candidates = []
+        for cand in all_candidates:
+            seq_len = cand["token_ids"].shape[1]
+            score = cand["cum_logprob"] / ( (seq_len ** length_penalty) )
+            scored_candidates.append((score, cand))
+
+        # 점수 순으로 내림차순 정렬
+        scored_candidates.sort(key=lambda x: x[0], reverse=True)
+
+        # 베스트 beam_width개만 beam_list로 유지
+        new_beam_list = []
+        for idx in range(min(beam_width, len(scored_candidates))):
+            _, best_cand = scored_candidates[idx]
+            new_beam_list.append(best_cand)
+
+        beam_list = new_beam_list
+
+        # --------------------------------------------------------
+        # 3) EOS 토큰이 포함된 빔은 finished_beams로 옮겨야 함
+        # --------------------------------------------------------
+        still_alive_beams = []
+        for beam in beam_list:
+            last_token_id = beam["token_ids"][0, -1].item()
+            if last_token_id == self.tokenizer.eos_token_id:
+                # EOS를 만난 빔 → finished_beams에 저장 (score를 함께 저장)
+                seq_len = beam["token_ids"].shape[1]
+                score = beam["cum_logprob"] / ( (seq_len ** length_penalty) )
+                finished_beams.append((score, beam))
+            else:
+                still_alive_beams.append(beam)
+
+        beam_list = still_alive_beams
+
+        # 만약 살아 있는 빔이 하나도 없다면 반복 종료
+        if len(beam_list) == 0:
+            break
+
+    # ------------------------------------------------------------
+    # 4) “완성된 빔”이 없다면, 아직 살아남은 빔 중 최고 점수를 고른다
+    # ------------------------------------------------------------
+    if len(finished_beams) == 0:
+        # beam_list에 남아있는 것들을 finished로 간주 (EOS는 없지만)
+        for beam in beam_list:
+            seq_len = beam["token_ids"].shape[1]
+            score = beam["cum_logprob"] / ( (seq_len ** length_penalty) )
+            finished_beams.append((score, beam))
+
+    # ------------------------------------------------------------
+    # 5) finished_beams 중 최고 점수를 선택하여 결과 반환
+    # ------------------------------------------------------------
+    finished_beams.sort(key=lambda x: x[0], reverse=True)
+    best_score, best_beam = finished_beams[0]
+    best_sequence_ids = best_beam["token_ids"]  # (1, final_len)
+
+    # 디코딩할 때, 처음에 붙어있던 프롬프트(입력부분)를 제외하려면 슬라이싱 가능
+    # 예: best_sequence_ids[0, input_len:].tolist()
+    decoded = self.tokenizer.decode(best_sequence_ids[0].cpu().tolist(), skip_special_tokens=True)
+
+    return best_sequence_ids, decoded
+     
 
 def save_model(model, optimizer, args, filepath):
   save_info = {

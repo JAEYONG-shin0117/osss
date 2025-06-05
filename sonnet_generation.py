@@ -76,11 +76,11 @@ class SonnetGPT(nn.Module):
   
   @torch.no_grad()
   def generate(
-      self,
-      encoding,
-      beam_width: int = 3,
-      max_length: int = 128,
-      length_penalty: float = 0.7
+    self,
+    encoding,
+    beam_width: int = 3,
+    max_length: int = 128,
+    length_penalty: float = 0.7
   ):
     """
     Beam Search를 통해 최적의 시퀀스를 생성한다.
@@ -283,7 +283,7 @@ def train(args):
     model.eval()
     for batch in held_out_sonnet_dataset:
       encoding = model.tokenizer(batch[1], return_tensors='pt', padding=True, truncation=True).to(device)
-      output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)
+      output = model.generate(encoding, beam_width=3, max_length=128, length_penalty=0.7)
       print(f'{batch[1]}{output[1]}\n\n')
 
     # TODO: 소넷의 작은 테이터셋에서 과적합을 방지하기 위한 종료 조건을 생각하시오.

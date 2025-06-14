@@ -1,6 +1,5 @@
 import torch
-from torch import nn
-import torch.nn.functional as F
+import torch.nn as nn
 
 class LoRALinear(nn.Module):
     def __init__(self, in_features, out_features, r=4, alpha=1.0, bias=True):

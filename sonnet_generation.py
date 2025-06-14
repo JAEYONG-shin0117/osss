@@ -26,6 +26,7 @@ from datasets import (
   SonnetsDataset,
 )
 from models.gpt2 import GPT2Model
+from evaluation import test_sonnet
 
 from optimizer import AdamW
 
@@ -200,7 +201,7 @@ def generate_submission_sonnets(args):
   model = model.to(device)
   model.eval()
 
-  # held-out 데이터셋 만들기: 처음 3 줄만 있다. 나머지를 채우는 것은 여러분 몫이다!# held-out 데이터셋 만들기: 처음 3 줄만 있다. 나머지를 채우는 것은 여러분 몫이다!
+  # held-out 데이터셋 만들기: 처음 3 줄만 있다. 나머지를 채우는 것은 여러분 몫이다!
   held_out_sonnet_dataset = SonnetsDataset(args.held_out_sonnet_path)
 
   generated_sonnets = []
@@ -219,6 +220,10 @@ def generate_submission_sonnets(args):
     for sonnet in generated_sonnets:
       f.write(f"\n{sonnet[0]}\n")
       f.write(sonnet[1])
+
+  # 생성된 소넷 평가
+  chrf_score = test_sonnet(args.sonnet_out, args.held_out_sonnet_path)
+  print(f"\n생성된 소넷의 CHRF 점수: {chrf_score:.3f}")
 
 
 def get_args():

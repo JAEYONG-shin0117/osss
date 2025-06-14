@@ -2,12 +2,14 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from modules.attention import CausalSelfAttention
+from modules.adapter import Adapter
 
 class GPT2Layer(nn.Module):
   def __init__(self, config):
     super().__init__()
     # Multi-head attention.
     self.self_attention = CausalSelfAttention(config)
+    self.adapter = Adapter(config.hidden_size, bottleneck=64)
     # Add-norm for multi-head attention.
     self.attention_dense = nn.Linear(config.hidden_size, config.hidden_size)
     self.attention_layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
@@ -73,5 +75,7 @@ class GPT2Layer(nn.Module):
 
     # Add & Dropout (Dense 이미 적용됨) 
     output = self.add(attn_out, ff, lambda x: x, self.out_dropout)
+
+    output = self.adapter(output) + output
     return output
     ##------------------------

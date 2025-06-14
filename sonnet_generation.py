@@ -55,7 +55,11 @@ class SonnetGPT(nn.Module):
 
     # 기본적으로, 전체 모델을 fine-tuning한다. TODO: 이것은 좋은 생각이 아닌 것 같다.
     for param in self.gpt.parameters():
-      param.requires_grad = True
+      param.requires_grad = False
+
+    for name, param in self.gpt.named_parameters():
+      if 'A' in name or 'B' in name or 'adapter' in name:
+        param.requires_grad = True
 
   def forward(self, input_ids, attention_mask):
     """

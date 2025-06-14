@@ -97,6 +97,7 @@ def save_model(model, optimizer, args, filepath):
 
 
 def train(args):
+  args = add_arguments(args)
   """Quora 데이터셋에서 Paraphrase Detection을 위한 GPT-2 훈련."""
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
   # 데이터, 해당 데이터셋 및 데이터로드 생성하기.
@@ -109,8 +110,8 @@ def train(args):
   para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=args.batch_size,
                                      collate_fn=para_train_data.collate_fn)
   para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
+       
                                    collate_fn=para_dev_data.collate_fn)
-
   args = add_arguments(args)
   model = ParaphraseGPT(args)
   model = model.to(device)
@@ -200,7 +201,7 @@ def get_args():
   parser.add_argument("--para_test_out", type=str, default="predictions/para-test-output.csv")
 
   parser.add_argument("--seed", type=int, default=11711)
-  parser.add_argument("--epochs", type=int, default=10)
+  parser.add_argument("--epochs", type=int, default=1)
   parser.add_argument("--use_gpu", action='store_true')
 
   parser.add_argument("--batch_size", help='sst: 64, cfimdb: 8 can fit a 12GB GPU', type=int, default=16)
@@ -208,6 +209,11 @@ def get_args():
   parser.add_argument("--model_size", type=str,
                       help="The model size as specified on hugging face. DO NOT use the xl model.",
                       choices=['gpt2', 'gpt2-medium', 'gpt2-large'], default='gpt2')
+
+
+  parser.add_argument("--augment", action='store_true', help="데이터 증강(Synonym Replacement) 적용 여부")
+  parser.add_argument("--max_len", type=int, default=128, help="입력 시퀀스 최대 길이")
+
 
   args = parser.parse_args()
   return args

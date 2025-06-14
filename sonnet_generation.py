@@ -1,5 +1,5 @@
 '''
-소넷 생성을 위한 시작 코드.
+소넷 생성을 위한 시작 코
 
 실행:
   `python sonnet_generation.py --use_gpu`

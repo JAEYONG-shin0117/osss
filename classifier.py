@@ -17,6 +17,7 @@ from sklearn.metrics import f1_score, accuracy_score
 from models.gpt2 import GPT2Model
 from optimizer import AdamW
 from tqdm import tqdm
+from modules.adapter import Adapter
 
 TQDM_DISABLE = False
 
@@ -45,6 +46,8 @@ class GPT2SentimentClassifier(torch.nn.Module):
     self.num_labels = config.num_labels
     self.gpt = GPT2Model.from_pretrained()
 
+    self.adapter_norm = torch.nn.LayerNorm(config.hidden_size)
+    self.adapter = Adapter(config.hidden_size, bottleneck=64)
     # 사전학습 모드에서는 GPT 파라미터들을 업데이트할 필요가가 없다.
     assert config.fine_tune_mode in ["last-linear-layer", "full-model"]
     for param in self.gpt.parameters():
@@ -75,7 +78,11 @@ class GPT2SentimentClassifier(torch.nn.Module):
     '''
     ##----- 새로 작성한 코드 -----
     gpt_output = self.gpt(input_ids=input_ids, attention_mask=attention_mask) # GPT Model을 통한 output
-    x = gpt_output['last_token']           # [batch, hidden_size] (GPT output의 last token's hidden state 사용)
+    x = gpt_output['last_token']
+
+    #Adapter 적용
+    x = x +self.adapter(self.adapter_norm(x))
+    # [batch, hidden_size] (GPT output의 last token's hidden state 사용)
     x = self.dropout(x)                    # Dropout 적용
     logits = self.classification_head(x)   # [batch, num_labels]  (classifier head 적용, logit output.)
     
@@ -279,7 +286,14 @@ def train(args):
 
   model = GPT2SentimentClassifier(config)
   model = model.to(device)
+  # 전체 파라미터 동결
+  for param in model.parameters():
+    param.requires_grad = False
 
+  # LoRA + Adapter만 학습
+  for name, param in model.named_parameters():
+    if 'A' in name or 'B' in name or 'adapter' in name:
+      param.requires_grad = True
   lr = args.lr
   optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
 

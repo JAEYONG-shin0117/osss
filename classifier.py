@@ -281,7 +281,8 @@ def train(args):
   model = model.to(device)
 
   lr = args.lr
-  optimizer = AdamW(model.parameters(), lr=lr)
+  optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
+
   best_dev_acc = 0
 
   for epoch in range(args.epochs):

@@ -3,7 +3,7 @@ import math
 
 from einops import rearrange
 from torch import nn
-
+from modules.lora import LoRALinear
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, config):
@@ -14,9 +14,9 @@ class CausalSelfAttention(nn.Module):
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
         # key, value, query에 대한 선형변환 layer 초기화.
-        self.query = nn.Linear(config.hidden_size, self.all_head_size)
-        self.key = nn.Linear(config.hidden_size, self.all_head_size)
-        self.value = nn.Linear(config.hidden_size, self.all_head_size)
+        self.query = LoRALinear(config.hidden_size, self.all_head_size)
+        self.key = LoRALinear(config.hidden_size, self.all_head_size)
+        self.value = LoRALinear(config.hidden_size, self.all_head_size)
 
         # 이 드롭아웃은 트랜스포머의 원래 구현에 따라 normalized attention scores에 적용된다.
         # 다소 이례적이지만, 경험적으로 이것이 더 나은 성능을 제공한다고 알려져 있다.

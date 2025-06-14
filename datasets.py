@@ -1,6 +1,5 @@
 # !/usr/bin/env python3
 
-
 """
 이 파일은 Quora의 Paraphrase Detection을 위한 Dataset 클래스를 포함한다. 추가 데이터 소스로 훈련시키거나
 Quora 데이터셋의 처리 방식(예: 데이터 증강 등)을 변경하려는 경우 이 파일을 수정할 수 있다.
@@ -13,6 +12,41 @@ import torch
 
 from torch.utils.data import Dataset
 from transformers import GPT2Tokenizer
+
+import random
+from nltk.corpus import wordnet
+
+def get_synonyms(word):
+    synonyms = set()
+    for syn in wordnet.synsets(word):
+        for lemma in syn.lemmas():
+            synonym = lemma.name().replace("_", " ").lower()
+            if synonym != word.lower():
+                synonyms.add(synonym)
+    return list(synonyms)
+
+def synonym_replacement(text, n=1):
+    """
+    문장에서 n개의 단어를 유의어로 바꿉니다.
+    """
+    words = text.split()
+    eligible_words = [word for word in words if get_synonyms(word)]
+    if not eligible_words:
+        return text  # 바꿀 수 있는 단어가 없으면 원문 반환
+
+    random.shuffle(eligible_words)
+    num_replaced = 0
+
+    for word in eligible_words:
+        synonyms = get_synonyms(word)
+        if synonyms:
+            synonym = random.choice(synonyms)
+            words = [synonym if w == word else w for w in words]
+            num_replaced += 1
+        if num_replaced >= n:
+            break
+
+    return " ".join(words)
 
 
 def preprocess_string(s):
@@ -34,8 +68,42 @@ class ParaphraseDetectionDataset(Dataset):
   def __len__(self):
     return len(self.dataset)
 
+  """
+  데이터 증강 파인튜닝을 위한 코드 수정
+
+  """
   def __getitem__(self, idx):
-    return self.dataset[idx]
+    # 원본 데이터 추출
+    row = self.dataset[idx]
+    text1, text2, label, _ = row  # 또는 row[0], row[1], row[2]
+    text1 = str(text1)
+    text2 = str(text2)
+    label = int(label)
+
+
+
+    # 데이터 증강 (Synonym Replacement) -------------------
+    # 학습 데이터를 더욱 일반화된 형태로 만들기 위해 유의어 치환(synonym replacement)방법
+    # 효과: 모델이 다양한 문장 표현을 학습하게 하여 과적합을 줄이고 일반화 성능 향상 가능
+    if self.p.augment and random.random() < 0.3:
+        text1 = synonym_replacement(text1, n=2)
+        text2 = synonym_replacement(text2, n=2)
+
+    # 토큰화
+    inputs = self.tokenizer(
+        text1,
+        text2,
+        truncation=True,
+        padding='max_length',
+        max_length=self.p.max_len,
+        return_tensors='pt'
+    )
+
+    item = {key: val.squeeze(0) for key, val in inputs.items()}
+    item['labels'] = torch.tensor(label)
+    
+    return (text1, text2, label, row[3]) if len(row) > 3 else (text1, text2, label, str(idx))
+
 
   def collate_fn(self, all_data):
     sent1 = [x[0] for x in all_data]
@@ -76,25 +144,15 @@ class ParaphraseDetectionTestDataset(Dataset):
     return self.dataset[idx]
 
   def collate_fn(self, all_data):
-    sent1 = [x[0] for x in all_data]
-    sent2 = [x[1] for x in all_data]
-    sent_ids = [x[2] for x in all_data]
+    input_ids = torch.stack([x['input_ids'] for x in all_data])
+    attention_mask = torch.stack([x['attention_mask'] for x in all_data])
+    labels = torch.stack([x['labels'] for x in all_data])
 
-    cloze_style_sents = [f'Is "{s1}" a paraphrase of "{s2}"? Answer "yes" or "no": ' for (s1, s2) in
-                         zip(sent1, sent2)]
-
-    encoding = self.tokenizer(cloze_style_sents, return_tensors='pt', padding=True, truncation=True)
-
-    token_ids = torch.LongTensor(encoding['input_ids'])
-    attention_mask = torch.LongTensor(encoding['attention_mask'])
-
-    batched_data = {
-      'token_ids': token_ids,
-      'attention_mask': attention_mask,
-      'sent_ids': sent_ids
+    return {
+        'token_ids': input_ids,
+        'attention_mask': attention_mask,
+        'labels': labels
     }
-
-    return batched_data
 
 
 def load_paraphrase_data(paraphrase_filename, split='train'):

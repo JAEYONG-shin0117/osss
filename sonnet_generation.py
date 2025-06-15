@@ -81,9 +81,9 @@ class SonnetGPT(nn.Module):
       return param.device
 
   @torch.no_grad()
-  def generate(self, encoding, temperature=1.0, max_length=128, num_beams=5):
+  def generate(self, encoding, temperature=1.0, max_length=128, num_beams=5, repetition_penalty=1.2):
     """
-    Beam search와 softmax temperature를 사용하여 새로운 소넷을 생성한다.
+    Beam search와 softmax temperature, repetition penalty를 사용하여 새로운 소넷을 생성한다.
     기존의 top-p 샘플링 방식 대신 beam search를 구현하여 생성 품질을 개선하였다.
 
     TODO: 지금 이 방법은 기대 이하일 수 있다. 영감을 얻기 위해 Hugging Face의 model.generate(...) 함수를 참고해도 좋겠다.
@@ -109,6 +109,14 @@ class SonnetGPT(nn.Module):
         attention_mask = torch.ones_like(seq)
         logits = self.forward(seq, attention_mask)
         logits_last_token = logits[:, -1, :] / temperature # Apply temperature scaling
+
+        # Repetition penalty 적용
+        if repetition_penalty != 1.0:
+            for token_id in torch.unique(seq[0]):
+                if logits_last_token[0, token_id] > 0:
+                    logits_last_token[0, token_id] /= repetition_penalty
+                else:
+                    logits_last_token[0, token_id] *= repetition_penalty
 
         log_probs = F.log_softmax(logits_last_token, dim=-1)
         top_log_probs, top_indices = torch.topk(log_probs, num_beams, dim=-1)
@@ -201,7 +209,7 @@ def train(args):
     model.eval()
     for batch in held_out_sonnet_dataset:
       encoding = model.tokenizer(batch[1], return_tensors='pt', padding=True, truncation=True).to(device)
-      output = model.generate(encoding['input_ids'], temperature=args.temperature, num_beams=args.num_beams)
+      output = model.generate(encoding['input_ids'], temperature=args.temperature, num_beams=args.num_beams, repetition_penalty=args.repetition_penalty)
       print(f'{batch[1]}{output[1]}\n\n')
 
     # TODO: 소넷의 작은 테이터셋에서 과적합을 방지하기 위한 종료 조건을 생각하시오.
@@ -226,7 +234,7 @@ def generate_submission_sonnets(args):
     sonnet_id = batch[0]
     prompt_text = batch[1]
     encoding = model.tokenizer(prompt_text, return_tensors='pt', padding=False, truncation=True).to(device)
-    _, decoded_output = model.generate(encoding['input_ids'], temperature=args.temperature, num_beams=args.num_beams)
+    _, decoded_output = model.generate(encoding['input_ids'], temperature=args.temperature, num_beams=args.num_beams, repetition_penalty=args.repetition_penalty)
     
     full_sonnet = f'{prompt_text}{decoded_output}\n\n'
     generated_sonnets.append((sonnet_id, full_sonnet))
@@ -258,6 +266,7 @@ def get_args():
   # Generation parameters.
   parser.add_argument("--temperature", type=float, help="softmax temperature.", default=1.0)
   parser.add_argument("--num_beams", type=int, default=5, help="Number of beams for beam search.")
+  parser.add_argument("--repetition_penalty", type=float, default=1.2, help="Penalty for repeating tokens.")
 
   parser.add_argument("--batch_size", help='The training batch size.', type=int, default=8)
   parser.add_argument("--lr", type=float, help="learning rate", default=1e-5)

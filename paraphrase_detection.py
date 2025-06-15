@@ -179,8 +179,20 @@ def train(args):
     para_train_data.extend(augmented_data)
     print(f"Augmented training data: {len(para_train_data)}")
 
+  # 🔧 tuple 형식 보정
+  cleaned_data = []
+  for item in para_train_data:
+    if isinstance(item, dict):
+      cleaned_data.append((item['question1'], item['question2'], item['label']))
+    elif isinstance(item, tuple):
+      cleaned_data.append(item)
+    else:
+      raise ValueError(f"Unexpected format in training data: {type(item)}")
+  para_train_data = cleaned_data
+
   para_train_data = ParaphraseDetectionDataset(para_train_data, args)
   para_dev_data = ParaphraseDetectionDataset(para_dev_data, args)
+
   para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=args.batch_size, collate_fn=para_train_data.collate_fn)
   para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size, collate_fn=para_dev_data.collate_fn)
   model = ParaphraseGPT(args).to(device)

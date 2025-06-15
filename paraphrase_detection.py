@@ -22,6 +22,8 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from numpy.core.multiarray import _reconstruct
+
 from datasets import (
   ParaphraseDetectionDataset,
   ParaphraseDetectionTestDataset,
@@ -158,8 +160,8 @@ def test(args):
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
 
     # ✅ 허용할 글로벌 객체 등록
-    with torch.serialization.safe_globals([argparse.Namespace]):
-        saved = torch.load(args.filepath)
+    with torch.serialization.safe_globals([argparse.Namespace, _reconstruct]):
+      saved = torch.load(args.filepath)
 
     model = ParaphraseGPT(saved['args'])
     model.load_state_dict(saved['model'])

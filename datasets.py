@@ -141,7 +141,12 @@ class ParaphraseDetectionTestDataset(Dataset):
     return len(self.dataset)
 
   def __getitem__(self, idx):
-    return self.dataset[idx]
+    return {
+        'input_ids': self.input_ids[idx],
+        'attention_mask': self.attention_mask[idx],
+        'labels': self.labels[idx]
+    }
+
 
   def collate_fn(self, all_data):
     input_ids = torch.stack([x['input_ids'] for x in all_data])

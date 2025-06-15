@@ -112,7 +112,6 @@ def train(args):
   para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
        
                                    collate_fn=para_dev_data.collate_fn)
-  args = add_arguments(args)
   model = ParaphraseGPT(args)
   model = model.to(device)
 
@@ -155,40 +154,44 @@ def train(args):
 
 @torch.no_grad()
 def test(args):
-  """Evaluate your model on the dev and test datasets; save the predictions to disk."""
-  device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
-  saved = torch.load(args.filepath)
+    """Evaluate your model on the dev and test datasets; save the predictions to disk."""
+    device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
 
-  model = ParaphraseGPT(saved['args'])
-  model.load_state_dict(saved['model'])
-  model = model.to(device)
-  model.eval()
-  print(f"Loaded model to test from {args.filepath}")
+    # ✅ 허용할 글로벌 객체 등록
+    with torch.serialization.safe_globals([argparse.Namespace]):
+        saved = torch.load(args.filepath)
 
-  para_dev_data = load_paraphrase_data(args.para_dev)
-  para_test_data = load_paraphrase_data(args.para_test, split='test')
+    model = ParaphraseGPT(saved['args'])
+    model.load_state_dict(saved['model'])
+    model = model.to(device)
+    model.eval()
+    print(f"Loaded model to test from {args.filepath}")
 
-  para_dev_data = ParaphraseDetectionDataset(para_dev_data, args)
-  para_test_data = ParaphraseDetectionTestDataset(para_test_data, args)
+    para_dev_data = load_paraphrase_data(args.para_dev)
+    para_test_data = load_paraphrase_data(args.para_test, split='test')
 
-  para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
-                                   collate_fn=para_dev_data.collate_fn)
-  para_test_dataloader = DataLoader(para_test_data, shuffle=True, batch_size=args.batch_size,
-                                    collate_fn=para_test_data.collate_fn)
+    para_dev_data = ParaphraseDetectionDataset(para_dev_data, args)
+    para_test_data = ParaphraseDetectionTestDataset(para_test_data, args)
 
-  dev_para_acc, _, dev_para_y_pred, _, dev_para_sent_ids = model_eval_paraphrase(para_dev_dataloader, model, device)
-  print(f"dev paraphrase acc :: {dev_para_acc :.3f}")
-  test_para_y_pred, test_para_sent_ids = model_test_paraphrase(para_test_dataloader, model, device)
+    para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
+                                     collate_fn=para_dev_data.collate_fn)
+    para_test_dataloader = DataLoader(para_test_data, shuffle=True, batch_size=args.batch_size,
+                                      collate_fn=para_test_data.collate_fn)
 
-  with open(args.para_dev_out, "w+") as f:
-    f.write(f"id \t Predicted_Is_Paraphrase \n")
-    for p, s in zip(dev_para_sent_ids, dev_para_y_pred):
-      f.write(f"{p}, {s} \n")
+    dev_para_acc, _, dev_para_y_pred, _, dev_para_sent_ids = model_eval_paraphrase(para_dev_dataloader, model, device)
+    print(f"dev paraphrase acc :: {dev_para_acc :.3f}")
+    test_para_y_pred, test_para_sent_ids = model_test_paraphrase(para_test_dataloader, model, device)
 
-  with open(args.para_test_out, "w+") as f:
-    f.write(f"id \t Predicted_Is_Paraphrase \n")
-    for p, s in zip(test_para_sent_ids, test_para_y_pred):
-      f.write(f"{p}, {s} \n")
+    with open(args.para_dev_out, "w+") as f:
+        f.write(f"id \t Predicted_Is_Paraphrase \n")
+        for p, s in zip(dev_para_sent_ids, dev_para_y_pred):
+            f.write(f"{p}, {s} \n")
+
+    with open(args.para_test_out, "w+") as f:
+        f.write(f"id \t Predicted_Is_Paraphrase \n")
+        for p, s in zip(test_para_sent_ids, test_para_y_pred):
+            f.write(f"{p}, {s} \n")
+
 
 
 def get_args():

@@ -12,4 +12,3 @@ einops==0.8.0
 transformers==4.46.3
 sacrebleu==2.5.1
 nltk
-argparse

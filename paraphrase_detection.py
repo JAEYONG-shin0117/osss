@@ -229,7 +229,7 @@ def test(args):
   model.eval()
   print(f"Loaded model to test from {args.filepath}")
 
-  para_dev_data = load_paraphrase_data(args.para_dev)
+  para_dev_data = load_paraphrase_data(args.para_dev, split='dev') 
   para_test_data = load_paraphrase_data(args.para_test, split='test')
   para_dev_data = ParaphraseDetectionDataset(para_dev_data, args)
   para_test_data = ParaphraseDetectionTestDataset(para_test_data, args)

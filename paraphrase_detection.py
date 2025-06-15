@@ -95,20 +95,29 @@ def augment_data_with_back_translation(train_data, tokenizer_pivot, model_pivot,
     selected_indices = random.sample(range(len(train_data)), augment_count)
     successful_augmentations = 0
 
-    for idx in tqdm(selected_indices, desc="Back Translation"):
-        item = train_data[idx]
-        if isinstance(item, tuple):
-            item = {'question1': item[0], 'question2': item[1], 'label': item[2]}
+    for i, idx in enumerate(tqdm(selected_indices, desc="Back Translation")):
+      item = train_data[idx]
 
-        q1, q2, label = item['question1'], item['question2'], item['label']
-        aug_q1 = back_translate(q1, tokenizer_pivot, model_pivot, tokenizer_back, model_back, device)
-        aug_q2 = back_translate(q2, tokenizer_pivot, model_pivot, tokenizer_back, model_back, device)
+      if isinstance(item, tuple):
+        item = {'question1': item[0], 'question2': item[1], 'label': item[2]}
+      elif isinstance(item, dict):
+        pass
+      else:
+        raise TypeError(f"Unexpected data type in train_data: {type(item)}")
 
-        if aug_q1 and aug_q2:
-            augmented_data.append({'question1': aug_q1, 'question2': aug_q2, 'label': label})
-            successful_augmentations += 1
+      q1, q2, label = item['question1'], item['question2'], item['label']
 
-    print(f"Successfully augmented {successful_augmentations} samples out of {augment_count} attempts")
+      aug_q1 = back_translate(q1, tokenizer_pivot, model_pivot, tokenizer_back, model_back, device)
+      aug_q2 = back_translate(q2, tokenizer_pivot, model_pivot, tokenizer_back, model_back, device)
+
+      if aug_q1 is not None and aug_q2 is not None:
+        augmented_data.append({
+            'question1': aug_q1,
+            'question2': aug_q2,
+            'label': label
+      })
+
+    print(f"Successfully augmented {len(augmented_data)} samples out of {augment_count} attempts")
 
     if device.type == 'cuda':
         model_pivot.cpu()

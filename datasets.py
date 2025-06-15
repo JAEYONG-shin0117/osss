@@ -43,7 +43,6 @@ class ParaphraseDetectionDataset(Dataset):
     labels = torch.LongTensor([x[2] for x in all_data])
     # labels = ['yes' if label == 1 else 'no' for label in [x[2] for x in all_data]]
     # labels = self.tokenizer(labels, return_tensors='pt', padding=True, truncation=True)['input_ids']
-    sent_ids = [x[3] for x in all_data]
 
     cloze_style_sents = [f'Question 1: "{s1}"\nQuestion 2: "{s2}\nAre these questions asking the same thing?\n' for
                          (s1, s2) in zip(sent1, sent2)]
@@ -56,7 +55,6 @@ class ParaphraseDetectionDataset(Dataset):
       'token_ids': token_ids,
       'attention_mask': attention_mask,
       'labels': labels,
-      'sent_ids': sent_ids
     }
 
     return batched_data

@@ -54,25 +54,21 @@ def back_translate(text, tokenizer_pivot, model_pivot, tokenizer_back, model_bac
         if len(text) > 500:
             text = text[:500]
 
-        inputs = tokenizer_pivot.prepare_seq2seq_batch(
-            [text], return_tensors="pt", max_length=128, truncation=True)
+        inputs = tokenizer_pivot([text], return_tensors="pt", truncation=True, padding=True, max_length=128)
         if device.type == 'cuda':
             inputs = {k: v.to(device) for k, v in inputs.items()}
 
         with torch.no_grad():
-            translated = model_pivot.generate(
-                **inputs, max_length=128, num_beams=4, early_stopping=True)
+            translated = model_pivot.generate(**inputs, max_length=128, num_beams=4, early_stopping=True)
 
         pivot_text = tokenizer_pivot.decode(translated[0], skip_special_tokens=True)
 
-        inputs_back = tokenizer_back.prepare_seq2seq_batch(
-            [pivot_text], return_tensors="pt", max_length=128, truncation=True)
+        inputs_back = tokenizer_back([pivot_text], return_tensors="pt", truncation=True, padding=True, max_length=128)
         if device.type == 'cuda':
             inputs_back = {k: v.to(device) for k, v in inputs_back.items()}
 
         with torch.no_grad():
-            back_translated = model_back.generate(
-                **inputs_back, max_length=128, num_beams=4, early_stopping=True)
+            back_translated = model_back.generate(**inputs_back, max_length=128, num_beams=4, early_stopping=True)
 
         result = tokenizer_back.decode(back_translated[0], skip_special_tokens=True)
         if result.lower().strip() == text.lower().strip():
@@ -101,6 +97,9 @@ def augment_data_with_back_translation(train_data, tokenizer_pivot, model_pivot,
 
     for idx in tqdm(selected_indices, desc="Back Translation"):
         item = train_data[idx]
+        if isinstance(item, tuple):
+            item = {'question1': item[0], 'question2': item[1], 'label': item[2]}
+
         q1, q2, label = item['question1'], item['question2'], item['label']
         aug_q1 = back_translate(q1, tokenizer_pivot, model_pivot, tokenizer_back, model_back, device)
         aug_q2 = back_translate(q2, tokenizer_pivot, model_pivot, tokenizer_back, model_back, device)
@@ -117,6 +116,7 @@ def augment_data_with_back_translation(train_data, tokenizer_pivot, model_pivot,
         torch.cuda.empty_cache()
 
     return augmented_data
+
 
 class ParaphraseGPT(nn.Module):
   def __init__(self, args):

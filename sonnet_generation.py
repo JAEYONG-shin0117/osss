@@ -145,6 +145,9 @@ class SonnetGPT(nn.Module):
     if generated_output.startswith(prompt):
         generated_output = generated_output[len(prompt):]
     
+    # <|endoftext|> 토큰 제거
+    generated_output = generated_output.replace(self.tokenizer.eos_token, "").strip()
+    
     return best_seq, generated_output
 
 
@@ -248,7 +251,7 @@ def generate_submission_sonnets(args):
       f.write(sonnet[1])
 
   # 생성된 소넷 평가
-  chrf_score = test_sonnet(args.sonnet_out, args.held_out_sonnet_path)
+  chrf_score = test_sonnet(args.sonnet_out, args.true_sonnet_path)
   print(f"\n생성된 소넷의 CHRF 점수: {chrf_score:.3f}")
 
 
@@ -257,6 +260,7 @@ def get_args():
 
   parser.add_argument("--sonnet_path", type=str, default="data/sonnets.txt")
   parser.add_argument("--held_out_sonnet_path", type=str, default="data/sonnets_held_out.txt")
+  parser.add_argument("--true_sonnet_path", type=str, default="data/TRUE_sonnets_held_out.txt")
   parser.add_argument("--sonnet_out", type=str, default="predictions/generated_sonnets.txt")
 
   parser.add_argument("--seed", type=int, default=11711)

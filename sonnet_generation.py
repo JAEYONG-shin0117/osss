@@ -81,50 +81,63 @@ class SonnetGPT(nn.Module):
       return param.device
 
   @torch.no_grad()
-  def generate(self, encoding, temperature=0.7, top_p=0.9, max_length=128):
+  def generate(self, encoding, temperature=1.0, max_length=128, num_beams=5):
     """
-    top-p sampling 과 softmax temperature를 사용하여 새로운 소넷을 생성한다.
+    Beam search와 softmax temperature를 사용하여 새로운 소넷을 생성한다.
+    기존의 top-p 샘플링 방식 대신 beam search를 구현하여 생성 품질을 개선하였다.
 
     TODO: 지금 이 방법은 기대 이하일 수 있다. 영감을 얻기 위해 Hugging Face의 model.generate(...) 함수를 참고해도 좋겠다.
         여러 시퀀스를 생성하고 beam search를 통해 최적의 시퀀스를 선택하는 것도 좋은 한 가지 방법이다.
         Top-k 샘플링 역시 또 다른 방법이며, 그 외에도 많은 접근법이 있다.
     """
     token_ids = encoding.to(self.get_device())
-    attention_mask = torch.ones(token_ids.shape, dtype=torch.int64).to(self.get_device())
+    device = self.get_device()
 
+    # beam search 초기화
+    # 각 beam은 (시퀀스, 점수)의 튜플
+    beams = [(token_ids, 0.0)]
+    
     for _ in range(max_length):
-      # logits을 구하기 위한 forward pass.
-      logits_sequence = self.forward(token_ids, attention_mask)
-      logits_last_token = logits_sequence[:, -1, :] / temperature  # Apply temperature scaling
+      all_candidates = []
+      
+      for seq, score in beams:
+        # 최대 길이에 도달했거나 EOS 토큰이 생성된 beam은 완료된 것으로 간주
+        if seq.shape[1] >= max_length or seq[0, -1].item() == self.tokenizer.eos_token_id:
+          all_candidates.append((seq, score))
+          continue
+          
+        attention_mask = torch.ones_like(seq)
+        logits = self.forward(seq, attention_mask)
+        logits_last_token = logits[:, -1, :] / temperature # Apply temperature scaling
 
-      # Convert logits to probabilities
-      probs = torch.nn.functional.softmax(logits_last_token, dim=-1)
+        log_probs = F.log_softmax(logits_last_token, dim=-1)
+        top_log_probs, top_indices = torch.topk(log_probs, num_beams, dim=-1)
 
-      # Top-p (nucleus) sampling
-      sorted_probs, sorted_indices = torch.sort(probs, descending=True)
-      cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-      top_p_mask = cumulative_probs <= top_p
-      top_p_mask[..., 1:] = top_p_mask[..., :-1].clone()  # Shift mask right for proper thresholding
-      top_p_mask[..., 0] = True  # Always include the highest probability token
-      filtered_probs = sorted_probs * top_p_mask  # Zero out unlikely tokens
-      filtered_probs /= filtered_probs.sum(dim=-1, keepdim=True)  # Normalize probabilities
+        for i in range(num_beams):
+          next_token = top_indices[:, i].unsqueeze(1)
+          log_prob = top_log_probs[:, i].item()
+          
+          new_seq = torch.cat([seq, next_token], dim=1)
+          new_score = score + log_prob
+          all_candidates.append((new_seq, new_score))
 
-      # Sample from filtered distribution
-      sampled_index = torch.multinomial(filtered_probs, 1)
-      sampled_token = sorted_indices.gather(dim=-1, index=sampled_index)
+      # 점수를 기준으로 후보 정렬 (길이 정규화)
+      ordered = sorted(all_candidates, key=lambda x: x[1] / x[0].shape[1], reverse=True)
+      beams = ordered[:num_beams]
 
-      # Stop if end-of-sequence token is reached
-      if sampled_token.item() == self.tokenizer.eos_token_id:
+      # 모든 beam이 EOS 토큰으로 끝나면 탐색 종료
+      if all(b[0][0, -1].item() == self.tokenizer.eos_token_id for b in beams):
         break
 
-      # Append sampled token
-      token_ids = torch.cat([token_ids, sampled_token], dim=1)
-      attention_mask = torch.cat(
-        [attention_mask, torch.ones((1, 1), dtype=torch.int64).to(self.get_device())], dim=1
-      )
-
-    generated_output = self.tokenizer.decode(token_ids[0].cpu().numpy().tolist())[3:]
-    return token_ids, generated_output
+    best_seq, _ = beams[0]
+    generated_output = self.tokenizer.decode(best_seq[0].cpu().numpy().tolist())
+    
+    # 프롬프트 부분 제거
+    prompt = self.tokenizer.decode(encoding[0].cpu().numpy().tolist())
+    if generated_output.startswith(prompt):
+        generated_output = generated_output[len(prompt):]
+    
+    return best_seq, generated_output
 
 
 def save_model(model, optimizer, args, filepath):
@@ -188,7 +201,7 @@ def train(args):
     model.eval()
     for batch in held_out_sonnet_dataset:
       encoding = model.tokenizer(batch[1], return_tensors='pt', padding=True, truncation=True).to(device)
-      output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)
+      output = model.generate(encoding['input_ids'], temperature=args.temperature, num_beams=args.num_beams)
       print(f'{batch[1]}{output[1]}\n\n')
 
     # TODO: 소넷의 작은 테이터셋에서 과적합을 방지하기 위한 종료 조건을 생각하시오.
@@ -211,13 +224,14 @@ def generate_submission_sonnets(args):
   generated_sonnets = []
   for batch in held_out_sonnet_dataset:
     sonnet_id = batch[0]
-    encoding = model.tokenizer(batch[1], return_tensors='pt', padding=False, truncation=True).to(device)
-    output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)[0][0]
-    decoded_output = model.tokenizer.decode(output)
-    full_sonnet = f'{decoded_output}\n\n'
+    prompt_text = batch[1]
+    encoding = model.tokenizer(prompt_text, return_tensors='pt', padding=False, truncation=True).to(device)
+    _, decoded_output = model.generate(encoding['input_ids'], temperature=args.temperature, num_beams=args.num_beams)
+    
+    full_sonnet = f'{prompt_text}{decoded_output}\n\n'
     generated_sonnets.append((sonnet_id, full_sonnet))
 
-    print(f'{decoded_output}\n\n')
+    print(f'{prompt_text}{decoded_output}\n\n')
 
   with open(args.sonnet_out, "w+", encoding="utf-8") as f:
     f.write(f"--Generated Sonnets-- \n\n")
@@ -242,9 +256,8 @@ def get_args():
   parser.add_argument("--use_gpu", action='store_true')
 
   # Generation parameters.
-  parser.add_argument("--temperature", type=float, help="softmax temperature.", default=1.2)
-  parser.add_argument("--top_p", type=float, help="Cumulative probability distribution for nucleus sampling.",
-                      default=0.9)
+  parser.add_argument("--temperature", type=float, help="softmax temperature.", default=1.0)
+  parser.add_argument("--num_beams", type=int, default=5, help="Number of beams for beam search.")
 
   parser.add_argument("--batch_size", help='The training batch size.', type=int, default=8)
   parser.add_argument("--lr", type=float, help="learning rate", default=1e-5)

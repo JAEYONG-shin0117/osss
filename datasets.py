@@ -55,6 +55,7 @@ class ParaphraseDetectionDataset(Dataset):
       'token_ids': token_ids,
       'attention_mask': attention_mask,
       'labels': labels,
+      'sent_ids': list(range(len(all_data))) 
     }
 
     return batched_data

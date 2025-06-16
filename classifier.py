@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from transformers import GPT2Tokenizer
 from sklearn.metrics import f1_score, accuracy_score
+import wandb
 
 from models.gpt2 import GPT2Model
 from optimizer import AdamW
@@ -262,6 +263,9 @@ def save_model(model, optimizer, args, config, filepath):
 
 
 def train(args):
+  run_name = args.filepath.replace('.pt', '')
+  wandb.init(project="gpt2-sentiment-classification", name=run_name, config=vars(args))
+
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
   # 데이터와 해당 데이터셋 및 데이터로더를 만든다.
   train_data, num_labels = load_data(args.train, 'train')
@@ -286,6 +290,9 @@ def train(args):
 
   model = GPT2SentimentClassifier(config)
   model = model.to(device)
+
+  wandb.watch(model, log='all', log_freq=100)
+
   # 전체 파라미터 동결
   for param in model.parameters():
     param.requires_grad = False
@@ -331,6 +338,18 @@ def train(args):
       save_model(model, optimizer, args, config, args.filepath)
 
     print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
+
+    wandb.log({
+        "epoch": epoch,
+        "train_loss": train_loss,
+        "train_accuracy": train_acc,
+        "train_f1": train_f1,
+        "dev_accuracy": dev_acc,
+        "dev_f1": dev_f1,
+        "best_dev_accuracy": best_dev_acc
+    })
+
+  wandb.finish()
 
 
 def test(args):

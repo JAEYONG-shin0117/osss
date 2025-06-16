@@ -14,6 +14,7 @@ ParaphraseGPT model을 훈련 및 평가하고, 필요한 제출용 파일을 �
 import argparse
 import random
 import torch
+import wandb
 
 import numpy as np
 import torch.nn.functional as F
@@ -115,6 +116,8 @@ def train(args):
   model = ParaphraseGPT(args)
   model = model.to(device)
 
+  wandb.watch(model, log='all', log_freq=100)
+
   lr = args.lr
   optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.)
   best_dev_acc = 0
@@ -149,6 +152,13 @@ def train(args):
       best_dev_acc = dev_acc
       save_model(model, optimizer, args, args.filepath)
 
+    wandb.log({
+        "epoch": epoch,
+        "train_loss": train_loss,
+        "dev_accuracy": dev_acc,
+        "dev_f1": dev_f1,
+        "best_dev_accuracy": best_dev_acc
+    })
     print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, dev acc :: {dev_acc :.3f}")
 
 
@@ -177,6 +187,9 @@ def test(args):
 
   dev_para_acc, _, dev_para_y_pred, _, dev_para_sent_ids = model_eval_paraphrase(para_dev_dataloader, model, device)
   print(f"dev paraphrase acc :: {dev_para_acc :.3f}")
+
+  wandb.summary["final_dev_accuracy"] = dev_para_acc
+
   test_para_y_pred, test_para_sent_ids = model_test_paraphrase(para_test_dataloader, model, device)
 
   with open(args.para_dev_out, "w+") as f:
@@ -236,5 +249,10 @@ if __name__ == "__main__":
   args = get_args()
   args.filepath = f'{args.epochs}-{args.lr}-paraphrase.pt'  # 경로명 저장.
   seed_everything(args.seed)  # 재현성을 위한 random seed 고정.
+
+  wandb.init(project="gpt2-paraphrase-detection", config=args)
+
   train(args)
   test(args)
+
+  wandb.finish()

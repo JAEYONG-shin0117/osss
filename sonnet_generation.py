@@ -12,6 +12,7 @@ SonnetGPT 모델을 훈련하고, 필요한 제출용 파일을 작성한다.
 import argparse
 import random
 import torch
+import wandb
 
 import numpy as np
 import torch.nn.functional as F
@@ -156,6 +157,8 @@ def train(args):
   model = SonnetGPT(args)
   model = model.to(device)
 
+  wandb.watch(model, log='all', log_freq=100)
+
   lr = args.lr
   optimizer = AdamW(model.parameters(), lr=lr)
 
@@ -183,13 +186,19 @@ def train(args):
       num_batches += 1
 
     train_loss = train_loss / num_batches
+    wandb.log({"epoch": epoch, "train_loss": train_loss})
     print(f"Epoch {epoch}: train loss :: {train_loss :.3f}.")
     print('Generating several output sonnets...')
     model.eval()
-    for batch in held_out_sonnet_dataset:
+
+    table = wandb.Table(columns=["prompt", "generation"])
+    for i, batch in enumerate(held_out_sonnet_dataset):
       encoding = model.tokenizer(batch[1], return_tensors='pt', padding=True, truncation=True).to(device)
       output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)
       print(f'{batch[1]}{output[1]}\n\n')
+      if i < 5: # Log first 5 examples to wandb
+          table.add_data(batch[1], output[1])
+    wandb.log({f"epoch_{epoch}_generations": table})
 
     # TODO: 소넷의 작은 테이터셋에서 과적합을 방지하기 위한 종료 조건을 생각하시오.
     save_model(model, optimizer, args, f'{epoch}_{args.filepath}')
@@ -228,6 +237,13 @@ def generate_submission_sonnets(args):
   # 생성된 소넷 평가
   chrf_score = test_sonnet(args.sonnet_out, args.true_sonnet_path)
   print(f"\n생성된 소넷의 CHRF 점수: {chrf_score:.3f}")
+
+  wandb.summary["final_chrf_score"] = chrf_score
+
+  final_table = wandb.Table(columns=["id", "full_sonnet"])
+  for sonnet_id, full_sonnet in generated_sonnets:
+      final_table.add_data(sonnet_id, full_sonnet)
+  wandb.log({"final_sonnets": final_table})
 
 
 def get_args():
@@ -279,5 +295,10 @@ if __name__ == "__main__":
   args = get_args()
   args.filepath = f'{args.epochs}-{args.lr}-sonnet.pt'  # 경로명 저장.
   seed_everything(args.seed)  # 재현성을 위한 random seed 고정.
+
+  wandb.init(project="gpt2-sonnet-generation", config=args)
+
   train(args)
   generate_submission_sonnets(args)
+
+  wandb.finish()

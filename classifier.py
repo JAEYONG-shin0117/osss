@@ -298,10 +298,6 @@ def train(args):
   optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
 
   best_dev_acc = 0
-  best_dev_f1 = 0
-  early_stop_counter = 0
-  patience = 3
-
 
   for epoch in range(args.epochs):
     model.train()
@@ -332,16 +328,8 @@ def train(args):
 
     if dev_acc > best_dev_acc:
       best_dev_acc = dev_acc
-      best_dev_f1 = dev_f1
-
       save_model(model, optimizer, args, config, args.filepath)
-      early_stop_counter = 0
-    else :
-      early_stop_counter += 1
 
-    if early_stop_counter >= patience:
-      print(f"Early stopping triggered at epoch {epoch}")
-      break
     print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
 
 
